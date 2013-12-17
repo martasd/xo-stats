@@ -111,6 +111,25 @@ def _process_journals(root_dir):
     return all_journals_stats
 
 
+def _activity_count(collected_stats):
+
+    activity_counts = {}
+
+    # count the number of times activities have been launched
+    for record in collected_stats:
+        activity_name = record['activity']
+
+        if activity_name == '':
+            continue
+
+        if activity_name in activity_counts:
+            activity_counts[activity_name] += 1
+        else:
+            activity_counts[activity_name] = 1
+
+    return activity_counts
+
+
 def main():
     arguments = docopt(__doc__, version=__version__)
 
@@ -137,6 +156,13 @@ def main():
                 csv_writer.writeheader()
                 for row in collected_stats:
                     csv_writer.writerow(row)
+
+                activity_counts = _activity_count(collected_stats)
+
+                with open(current_dir + '/activity' + outfile, 'w') as fp:
+                    for key, val in activity_counts.items():
+                        fp.write(key + ', ' + str(val) + '\n')
+
             else:
                 print "Unsupported format output file format."
 
