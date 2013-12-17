@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """
 This script processes backups of XO Journal metadata and produces
-statistics in JSON for further processing.
+statistics in a specified output file for further processing. Supported output
+format currently include CSV and JSON.
 
 Usage:
   process_journal_stats.py NUMBER-OF-JOURNALS [-o FILE]
@@ -32,7 +33,12 @@ def _get_metadata(filepath):
 
     with open(filepath, "r") as fp:
         data = fp.read()
-    return json.loads(data)
+    metadata_json = json.loads(data)
+
+    # TODO: Select only relevant metadata
+    activity_name = metadata_json['activity']
+    metadata_json['activity'] = re.split(r'\.', activity_name)[-1]
+    return metadata_json
 
 
 def _process_metadata_files(metadata_dir_path):
@@ -92,20 +98,15 @@ def _get_metadata_path(root_dir, serial_dir):
 
 def _process_journals(root_dir):
     '''
-    Output stats from all specified journals
+    Output stats from all specified journals in JSON
     '''
 
-    serial_dirs = os.listdir(root_dir)
-    serial_dir = serial_dirs.pop()
-    metadata_dir_path = _get_metadata_path(root_dir, serial_dir)
-    if metadata_dir_path:
-            all_journals_stats = _process_metadata_files(metadata_dir_path)
-
-    for serial_dir in serial_dirs:
+    all_journals_stats = []
+    for serial_dir in os.listdir(root_dir):
         metadata_dir_path = _get_metadata_path(root_dir, serial_dir)
         if metadata_dir_path:
-            all_journals_stats.append(
-                _process_metadata_files(metadata_dir_path))
+            curr_journal_stats = _process_metadata_files(metadata_dir_path)
+            all_journals_stats += curr_journal_stats
 
     return all_journals_stats
 
@@ -123,10 +124,13 @@ def main():
             if re.search(r'\.json', outfile):
                 json.dump(collected_stats, fp)
             elif re.search(r'\.csv', outfile):
+                # Collect all field names for header
                 keys = {}
-                for i in collected_stats:
-                    for k in i.keys():
+                for instance_stats in collected_stats:
+                    for k in instance_stats.keys():
                         keys[k] = 1
+
+                # Write one activity instance per row
                 csv_writer = csv.DictWriter(fp,
                                             fieldnames=keys.keys(),
                                             quoting=csv.QUOTE_MINIMAL)
