@@ -1,0 +1,4 @@
+* Give an option to select backup data absolute path
+* Specify which metadata to ignore
+* Acknowledge original works this script is based on
+* Write tests for the script
