@@ -5,12 +5,13 @@ statistics in a specified output file for further processing. Supported output
 format currently include CSV and JSON.
 
 Usage:
-  process_journal_stats.py NUMBER-OF-JOURNALS [-o FILE]
+  process_journal_stats.py [-o FILE] [-d DIRECTORY]
 
 Options:
-  -h --help  show this help message
-  -o FILE    specify output file
-  --version  show version
+  -h --help     show this help message
+  -o FILE       output file [default: ./journal_stats.csv]
+  -d DIRECTORY  users directory with journal backups [default: ./users]
+  --version    show version
 
 """
 
@@ -77,10 +78,12 @@ def _get_metadata_path(root_dir, serial_dir):
         # Not a directory with metadata
         return None
 
+    # TODO: Process all datastore backups, not just the latest one
     datastore_dir = None
     for dir in os.listdir(path):
-        if datastore_name.match(dir):
+        if datastore_name.match(dir) and os.path.islink(dir) is False:
             datastore_dir = dir
+            break
 
     if datastore_dir:
         path = path + '/' + datastore_dir
@@ -104,6 +107,7 @@ def _process_journals(root_dir):
     all_journals_stats = []
     for serial_dir in os.listdir(root_dir):
         metadata_dir_path = _get_metadata_path(root_dir, serial_dir)
+
         if metadata_dir_path:
             curr_journal_stats = _process_metadata_files(metadata_dir_path)
             all_journals_stats += curr_journal_stats
@@ -132,39 +136,46 @@ def _activity_count(collected_stats):
 
 def main():
     arguments = docopt(__doc__, version=__version__)
-
-    current_dir = os.getcwd()
-    # TODO: process only journals selected by the user
-    collected_stats = _process_journals(current_dir + '/users')
-
+    backup_dir = arguments['-d']
     outfile = arguments['-o']
-    if outfile:
-        with open(current_dir + '/' + outfile, 'w') as fp:
-            if re.search(r'\.json', outfile):
-                json.dump(collected_stats, fp)
-            elif re.search(r'\.csv', outfile):
-                # Collect all field names for header
-                keys = {}
-                for instance_stats in collected_stats:
-                    for k in instance_stats.keys():
-                        keys[k] = 1
 
-                # Write one activity instance per row
-                csv_writer = csv.DictWriter(fp,
-                                            fieldnames=keys.keys(),
-                                            quoting=csv.QUOTE_MINIMAL)
-                csv_writer.writeheader()
-                for row in collected_stats:
-                    csv_writer.writerow(row)
+    # TODO: process only journals selected by the user
+    collected_stats = _process_journals(backup_dir)
 
-                activity_counts = _activity_count(collected_stats)
+    with open(outfile, 'w') as fp:
+        outfile_ext = os.path.splitext(outfile)[1]
 
-                with open(current_dir + '/activity' + outfile, 'w') as fp:
-                    for key, val in activity_counts.items():
-                        fp.write(key + ', ' + str(val) + '\n')
+        if outfile_ext == '.json':
+            json.dump(collected_stats, fp)
+        elif outfile_ext == '.csv':
+            # Collect all field names for header
+            keys = {}
+            for instance_stats in collected_stats:
+                for k in instance_stats.keys():
+                    keys[k] = 1
 
-            else:
-                print "Unsupported format output file format."
+            # Write one activity instance per row
+            csv_writer = csv.DictWriter(fp,
+                                        fieldnames=keys.keys(),
+                                        quoting=csv.QUOTE_MINIMAL)
+            csv_writer.writeheader()
+            for row in collected_stats:
+
+                # we need to convert to ASCII for csv writer
+                for key, value in row.items():
+                    if isinstance(value, unicode):
+                        row[key] = value.encode('ascii', errors='ignore')
+                csv_writer.writerow(row)
+
+            # Output activity statistics
+            activity_counts = _activity_count(collected_stats)
+
+            with open(os.path.splitext(outfile)[0] +
+                      '_activity.csv', 'w') as fp:
+                for key, val in activity_counts.items():
+                    fp.write(key + ', ' + str(val) + '\n')
+        else:
+            print "Unsupported format output file format."
 
 if __name__ == "__main__":
     main()

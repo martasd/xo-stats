@@ -1,4 +1,5 @@
-* Give an option to select backup data absolute path
+* Make sure to process all datastore backups, currently only datastore-current
+  gets processed
 * Specify which metadata to ignore
 * Acknowledge original works this script is based on
 * Write tests for the script
