@@ -24,6 +24,7 @@ import os
 import re
 import csv
 import json
+import filecmp
 from docopt import docopt
 
 
@@ -63,7 +64,7 @@ def _process_metadata_files(metadata_dir_path):
 
 def _get_metadata_path(root_dir, serial_dir):
     '''
-    Determine the path to metadata directory, which varies in different
+    Determine the path to metadata directories, the paths vary for different
     versions of Sugar.
 
     Sugar 0.84 - 0.88: [serial]/datastore-[current,latest]/[store]
@@ -72,31 +73,33 @@ def _get_metadata_path(root_dir, serial_dir):
     datastore_name = re.compile('^datastore-*')
     serial_num = re.compile('^[A-Z]{2}')
 
+    metadata_dirs = []
+
     if serial_num.match(serial_dir):
-        path = root_dir + '/' + serial_dir
+        path_to_serial = root_dir + '/' + serial_dir
     else:
         # Not a directory with metadata
-        return None
+        return []
 
-    # TODO: Process all datastore backups, not just the latest one
-    datastore_dir = None
-    for dir in os.listdir(path):
-        if datastore_name.match(dir) and os.path.islink(dir) is False:
-            datastore_dir = dir
-            break
+    # iterate over all datastore backups for one serial number
+    for dir in os.listdir(path_to_serial):
+        path = path_to_serial + '/' + dir
+        if datastore_name.match(dir) and os.path.islink(path) is False:
+            store_dir = path + '/store'
+            if os.path.isdir(store_dir):
+                path = store_dir
 
-    if datastore_dir:
-        path = path + '/' + datastore_dir
-    else:
-        # No datastore dir
-        return None
+            # make sure to include only unique directories
+            diff = True
+            for orig_dir in metadata_dirs:
+                cmp = filecmp.dircmp(orig_dir, path)
+                diff = diff and (cmp.left_only or cmp.right_only or cmp.diff_files)
 
-    store_dir = path + '/store'
-    if os.path.isdir(store_dir):
-        path = store_dir
+            if diff:
+                print "Found valid journal dir: %s" % path
+                metadata_dirs.append(path)
 
-    print "Found valid journal dir: %s" % path
-    return path
+    return metadata_dirs
 
 
 def _process_journals(root_dir):
@@ -106,10 +109,11 @@ def _process_journals(root_dir):
 
     all_journals_stats = []
     for serial_dir in os.listdir(root_dir):
-        metadata_dir_path = _get_metadata_path(root_dir, serial_dir)
+        metadata_dirs = _get_metadata_path(root_dir, serial_dir)
 
-        if metadata_dir_path:
-            curr_journal_stats = _process_metadata_files(metadata_dir_path)
+        # process each datastore backup per serial number
+        for metadata_dir in metadata_dirs:
+            curr_journal_stats = _process_metadata_files(metadata_dir)
             all_journals_stats += curr_journal_stats
 
     return all_journals_stats
