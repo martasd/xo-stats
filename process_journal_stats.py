@@ -43,11 +43,14 @@ def _get_metadata(filepath):
 
     # Select only relevant metadata
     metadata_out = {}
-    for key, val in metadata_in.items():
-        if key in metadata:
-            metadata_out[key] = val
-    activity_name = metadata_in['activity']
-    metadata_out['activity'] = re.split(r'\.', activity_name)[-1]
+    activity_name = metadata_in.pop('activity')
+
+    if activity_name:
+        metadata_out['activity'] = re.split(r'\.', activity_name)[-1]
+
+        for key, val in metadata_in.items():
+            if key in metadata:
+                metadata_out[key] = val
 
     return metadata_out
 
