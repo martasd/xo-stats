@@ -5,13 +5,16 @@ statistics in a specified output file for further processing. Supported output
 format currently include CSV and JSON.
 
 Usage:
-  process_journal_stats.py [-o FILE] [-d DIRECTORY]
+  process_journal_stats.py [-o FILE] [-d DIRECTORY] [options]
 
 Options:
   -h --help     show this help message
   -o FILE       output file [default: ./journal_stats.csv]
   -d DIRECTORY  users directory with journal backups [default: ./users]
-  --version    show version
+  -m METADATA   list of metadata to include in the output
+                [default: ['activity', 'uid', 'title_set_by_user', 'title', \
+                'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
+  --version     show version
 
 """
 
@@ -35,12 +38,18 @@ def _get_metadata(filepath):
 
     with open(filepath, "r") as fp:
         data = fp.read()
-    metadata_json = json.loads(data)
+    metadata_in = json.loads(data)
+    global metadata
 
-    # TODO: Select only relevant metadata
-    activity_name = metadata_json['activity']
-    metadata_json['activity'] = re.split(r'\.', activity_name)[-1]
-    return metadata_json
+    # Select only relevant metadata
+    metadata_out = {}
+    for key, val in metadata_in.items():
+        if key in metadata:
+            metadata_out[key] = val
+    activity_name = metadata_in['activity']
+    metadata_out['activity'] = re.split(r'\.', activity_name)[-1]
+
+    return metadata_out
 
 
 def _process_metadata_files(metadata_dir_path):
@@ -142,6 +151,8 @@ def main():
     arguments = docopt(__doc__, version=__version__)
     backup_dir = arguments['-d']
     outfile = arguments['-o']
+    global metadata
+    metadata = arguments['-m']
 
     # TODO: process only journals selected by the user
     collected_stats = _process_journals(backup_dir)
