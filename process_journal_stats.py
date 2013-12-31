@@ -17,7 +17,7 @@ Options:
 
 __author__ = "Martin Dluhos"
 __email__ = "martin@gnu.org"
-__version__ = "0.1"
+__version__ = "0.2"
 
 
 import os
