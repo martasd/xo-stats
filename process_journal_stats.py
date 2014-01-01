@@ -79,7 +79,7 @@ def _get_metadata_path(root_dir, serial_dir):
     Determine the path to metadata directories, the paths vary for different
     versions of Sugar.
 
-    Sugar 0.84 - 0.88: [serial]/datastore-[current,latest]/[store]
+    Sugar 0.82 - 0.88: [serial]/datastore-[current,latest]/[store]
     '''
 
     datastore_name = re.compile('^datastore-*')
