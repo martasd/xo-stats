@@ -5,15 +5,17 @@ statistics in a specified output file for further processing. Supported output
 format currently include CSV and JSON.
 
 Usage:
-  process_journal_stats.py [-o FILE] [-d DIRECTORY] [options]
+  process_journal_stats.py all [-m METADATA] [options]
+  process_journal_stats.py activity [-s STATS] [options]
 
 Options:
   -h --help     show this help message
   -o FILE       output file [default: ./journal_stats.csv]
   -d DIRECTORY  users directory with journal backups [default: ./users]
   -m METADATA   list of metadata to include in the output
-                [default: ['activity', 'uid', 'title_set_by_user', 'title', \
-                'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
+                [default: ['activity', 'uid', 'title_set_by_user', 'title', 'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
+  -s STATS      list of metadata to include with activity statistics
+                [default: share-scope keep mime_type]
   --version     show version
 
 """
@@ -131,23 +133,89 @@ def _process_journals(root_dir):
     return all_journals_stats
 
 
-def _activity_count(collected_stats):
+def _activity_stats(collected_stats):
+    '''
+    Calculate the number of times each activity was launched.
+    '''
 
-    activity_counts = {}
+    activity_stats = {}
+    global metadata
+
+    try:
+        metadata.remove('share-scope')
+    except ValueError:
+        pass
+    else:
+        metadata += ['public', 'private']
 
     # count the number of times activities have been launched
     for record in collected_stats:
-        activity_name = record['activity']
 
-        if activity_name == '':
-            continue
+        activity = record['activity']
 
-        if activity_name in activity_counts:
-            activity_counts[activity_name] += 1
+        # pre-processing:
+        # convert all metadata values to booleans
+        try:
+            record.pop('mime_type')
+        except KeyError:
+            record['mime_type'] = 0
         else:
-            activity_counts[activity_name] = 1
+            record['mime_type'] = 1
 
-    return activity_counts
+        try:
+            keep = record['keep']
+        except KeyError:
+            record['keep'] = 0
+        else:
+            record['keep'] = int(keep)
+
+        scope_vals = ['public', 'private']
+        try:
+            active_scope = record.pop('share-scope')
+        except KeyError:
+            record[scope_vals[0]] = 0
+            record[scope_vals[1]] = 0
+        else:
+            scope_vals.remove(active_scope)
+            inactive_scope = scope_vals.pop()
+            record[active_scope] = 1
+            record[inactive_scope] = 0
+
+        if activity in activity_stats:
+            # update
+            for key in metadata:
+                val = record[key]
+                activity_stats[activity][key] += val
+        else:
+            # initialize
+            activity_stats[activity] = {'activity': activity}
+
+            # process the remaining metadata
+            for key in metadata:
+                val = record[key]
+                activity_stats[activity][key] = val
+
+    metadata.append('activity')
+    return activity_stats, metadata
+
+
+def _print_activity_stats(collected_stats, outfile):
+    '''
+    Output activity counts
+    '''
+
+    activity_stats, metadata = _activity_stats(collected_stats)
+
+    with open(os.path.splitext(outfile)[0] +
+              '_activity.csv', 'w') as fp:
+
+        csv_writer = csv.DictWriter(fp,
+                                    fieldnames=metadata,
+                                    quoting=csv.QUOTE_MINIMAL)
+
+        csv_writer.writeheader()
+        for activity, metadata_dict in activity_stats.items():
+            csv_writer.writerow(metadata_dict)
 
 
 def main():
@@ -155,45 +223,42 @@ def main():
     backup_dir = arguments['-d']
     outfile = arguments['-o']
     global metadata
-    metadata = arguments['-m']
 
-    # TODO: process only journals selected by the user
-    collected_stats = _process_journals(backup_dir)
+    if arguments['all']:
+        metadata = arguments['-m']
+        # TODO: process only journals selected by the user
+        collected_stats = _process_journals(backup_dir)
 
-    with open(outfile, 'w') as fp:
-        outfile_ext = os.path.splitext(outfile)[1]
+        with open(outfile, 'w') as fp:
+            outfile_ext = os.path.splitext(outfile)[1]
 
-        if outfile_ext == '.json':
-            json.dump(collected_stats, fp)
-        elif outfile_ext == '.csv':
-            # Collect all field names for header
-            keys = {}
-            for instance_stats in collected_stats:
-                for k in instance_stats.keys():
-                    keys[k] = 1
+            if outfile_ext == '.json':
+                json.dump(collected_stats, fp)
+            elif outfile_ext == '.csv':
+                # Collect all field names for header
+                keys = {}
+                for instance_stats in collected_stats:
+                    for k in instance_stats.keys():
+                        keys[k] = 1
 
-            # Write one activity instance per row
-            csv_writer = csv.DictWriter(fp,
-                                        fieldnames=keys.keys(),
-                                        quoting=csv.QUOTE_MINIMAL)
-            csv_writer.writeheader()
-            for row in collected_stats:
+                # Write one activity instance per row
+                csv_writer = csv.DictWriter(fp,
+                                            fieldnames=keys.keys(),
+                                            quoting=csv.QUOTE_MINIMAL)
+                csv_writer.writeheader()
+                for row in collected_stats:
+                    # we need to convert to ASCII for csv writer
+                    for key, value in row.items():
+                        if isinstance(value, unicode):
+                            row[key] = value.encode('ascii', errors='ignore')
+                    csv_writer.writerow(row)
+            else:
+                print "Unsupported format output file format."
 
-                # we need to convert to ASCII for csv writer
-                for key, value in row.items():
-                    if isinstance(value, unicode):
-                        row[key] = value.encode('ascii', errors='ignore')
-                csv_writer.writerow(row)
-
-            # Output activity statistics
-            activity_counts = _activity_count(collected_stats)
-
-            with open(os.path.splitext(outfile)[0] +
-                      '_activity.csv', 'w') as fp:
-                for key, val in activity_counts.items():
-                    fp.write(key + ', ' + str(val) + '\n')
-        else:
-            print "Unsupported format output file format."
+    elif arguments['activity']:
+        metadata = arguments['-s'].split()
+        collected_stats = _process_journals(backup_dir)
+        _print_activity_stats(collected_stats, outfile)
 
 if __name__ == "__main__":
     main()
