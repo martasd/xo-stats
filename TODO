@@ -1,2 +1,4 @@
+* Add support for Journal formats in later versions of Sugar: 0.88+.
+* Add an option to specify a date range for the backups to be processed.
 * Add an option for sorting by a metadata column
 * Write tests for the script
