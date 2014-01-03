@@ -173,8 +173,9 @@ def _activity_stats(collected_stats):
         try:
             active_scope = record.pop('share-scope')
         except KeyError:
-            record[scope_vals[0]] = 0
-            record[scope_vals[1]] = 0
+            # when no scope present, default to private
+            record['private'] = 1
+            record['public'] = 0
         else:
             scope_vals.remove(active_scope)
             inactive_scope = scope_vals.pop()
