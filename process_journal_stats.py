@@ -189,7 +189,7 @@ def _activity_stats(collected_stats):
                 activity_stats[activity][key] += val
         else:
             # initialize
-            activity_stats[activity] = {'activity': activity}
+            activity_stats[activity] = {}
 
             # process the remaining metadata
             for key in metadata:
@@ -200,29 +200,34 @@ def _activity_stats(collected_stats):
     return activity_stats, metadata
 
 
-def _print_activity_stats(collected_stats, outfile):
+def _print_activity_stats(collected_stats, outfile, format):
     '''
     Output activity counts
     '''
 
     activity_stats, metadata = _activity_stats(collected_stats)
 
-    with open(os.path.splitext(outfile)[0] +
-              '_activity.csv', 'w') as fp:
+    with open(outfile, 'w') as fp:
 
-        csv_writer = csv.DictWriter(fp,
-                                    fieldnames=metadata,
-                                    quoting=csv.QUOTE_MINIMAL)
+        if format == '.json':
+            json.dump(activity_stats, fp, indent=4)
+        elif format == '.csv':
+            csv_writer = csv.DictWriter(fp,
+                                        fieldnames=metadata,
+                                        quoting=csv.QUOTE_MINIMAL)
 
-        csv_writer.writeheader()
-        for activity, metadata_dict in activity_stats.items():
-            csv_writer.writerow(metadata_dict)
+            csv_writer.writeheader()
+            for activity, metadata_dict in activity_stats.items():
+                csv_writer.writerow(metadata_dict)
+        else:
+            print "Unsupported output file format."
 
 
 def main():
     arguments = docopt(__doc__, version=__version__)
     backup_dir = arguments['-d']
     outfile = arguments['-o']
+    format = os.path.splitext(outfile)[1]
     global metadata
 
     if arguments['all']:
@@ -231,11 +236,10 @@ def main():
         collected_stats = _process_journals(backup_dir)
 
         with open(outfile, 'w') as fp:
-            outfile_ext = os.path.splitext(outfile)[1]
 
-            if outfile_ext == '.json':
+            if format == '.json':
                 json.dump(collected_stats, fp)
-            elif outfile_ext == '.csv':
+            elif format == '.csv':
                 # Collect all field names for header
                 keys = {}
                 for instance_stats in collected_stats:
@@ -254,12 +258,12 @@ def main():
                             row[key] = value.encode('ascii', errors='ignore')
                     csv_writer.writerow(row)
             else:
-                print "Unsupported format output file format."
+                print "Unsupported output file format."
 
     elif arguments['activity']:
         metadata = arguments['-s'].split()
         collected_stats = _process_journals(backup_dir)
-        _print_activity_stats(collected_stats, outfile)
+        _print_activity_stats(collected_stats, outfile, format)
 
 if __name__ == "__main__":
     main()
