@@ -48,7 +48,8 @@ def _get_metadata(filepath):
     activity_name = metadata_in.pop('activity')
 
     if activity_name:
-        metadata_out['activity'] = re.split(r'\.', activity_name)[-1]
+        activity_name = re.split(r'\.', activity_name)[-1]
+        metadata_out['activity'] = re.sub(r'Activity', '', activity_name)
 
         for key, val in metadata_in.items():
             if key in metadata:
@@ -67,7 +68,6 @@ def _process_metadata_files(metadata_dir_path):
 
     for file in os.listdir(metadata_dir_path):
         if metadata_file.match(file) is not None:
-            print "Processing file: %s" % file
             activity_metadata = _get_metadata(metadata_dir_path + '/' + file)
 
             if len(activity_metadata) > 0:
@@ -156,11 +156,12 @@ def _activity_stats(collected_stats):
         # pre-processing:
         # convert all metadata values to booleans
         try:
-            record.pop('mime_type')
+            if record.pop('mime_type'):
+                record['mime_type'] = 1
+            else:
+                record['mime_type'] = 0
         except KeyError:
             record['mime_type'] = 0
-        else:
-            record['mime_type'] = 1
 
         try:
             keep = record['keep']
@@ -265,5 +266,8 @@ def main():
         collected_stats = _process_journals(backup_dir)
         _print_activity_stats(collected_stats, outfile, format)
 
+    print "Output file: %s" % outfile
+
 if __name__ == "__main__":
     main()
+
