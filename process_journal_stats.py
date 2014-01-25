@@ -14,8 +14,7 @@ Options:
   -d DIRECTORY  users directory with journal backups [default: ./users]
   -m METADATA   list of metadata to include in the output
                 [default: ['activity', 'uid', 'title_set_by_user', 'title', 'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
-  -s STATS      list of metadata to include with activity statistics
-                [default: share-scope keep mime_type]
+  -s STATS      list of metadata to include with activity statistics (e.g. share-scope keep mime_type)
   --version     show version
 
 """
@@ -131,7 +130,41 @@ def _process_journals(root_dir):
             all_journals_stats += curr_journal_stats
 
     return all_journals_stats
+ 
 
+def _preprocess_record(record):
+    '''
+        Convert all metadata values to booleans
+    '''
+    try:
+        if record.pop('mime_type'):
+            record['mime_type'] = 1
+        else:
+            record['mime_type'] = 0
+    except KeyError:
+            record['mime_type'] = 0
+
+    try:
+        keep = record['keep']
+    except KeyError:
+        record['keep'] = 0
+    else:
+        record['keep'] = int(keep)
+
+    scope_vals = ['public', 'private']
+    try:
+        active_scope = record.pop('share-scope')
+    except KeyError:
+        # when no scope present, default to private
+        record['private'] = 1
+        record['public'] = 0
+    else:
+        scope_vals.remove(active_scope)
+        inactive_scope = scope_vals.pop()
+        record[active_scope] = 1
+        record[inactive_scope] = 0
+
+    return record
 
 def _activity_stats(collected_stats):
     '''
@@ -151,46 +184,20 @@ def _activity_stats(collected_stats):
     # count the number of times activities have been launched
     for record in collected_stats:
 
+        _preprocess_record(record)
+
         activity = record['activity']
-
-        # pre-processing:
-        # convert all metadata values to booleans
-        try:
-            if record.pop('mime_type'):
-                record['mime_type'] = 1
-            else:
-                record['mime_type'] = 0
-        except KeyError:
-            record['mime_type'] = 0
-
-        try:
-            keep = record['keep']
-        except KeyError:
-            record['keep'] = 0
-        else:
-            record['keep'] = int(keep)
-
-        scope_vals = ['public', 'private']
-        try:
-            active_scope = record.pop('share-scope')
-        except KeyError:
-            # when no scope present, default to private
-            record['private'] = 1
-            record['public'] = 0
-        else:
-            scope_vals.remove(active_scope)
-            inactive_scope = scope_vals.pop()
-            record[active_scope] = 1
-            record[inactive_scope] = 0
 
         if activity in activity_stats:
             # update
+            activity_stats[activity]['count'] += 1
+
             for key in metadata:
                 val = record[key]
                 activity_stats[activity][key] += val
         else:
             # initialize
-            activity_stats[activity] = {}
+            activity_stats[activity] = {'count': 1}
 
             # process the remaining metadata
             for key in metadata:
@@ -262,7 +269,8 @@ def main():
                 print "Unsupported output file format."
 
     elif arguments['activity']:
-        metadata = arguments['-s'].split()
+        metadata = arguments['-s']
+        metadata = metadata.split(',') if metadata else []
         collected_stats = _process_journals(backup_dir)
         _print_activity_stats(collected_stats, outfile, format)
 
