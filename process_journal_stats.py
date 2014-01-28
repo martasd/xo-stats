@@ -14,7 +14,7 @@ Options:
   -d DIRECTORY  users directory with journal backups [default: ./users]
   -m METADATA   list of metadata to include in the output
                 [default: ['activity', 'uid', 'title_set_by_user', 'title', 'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
-  -s STATS      list of metadata to include with activity statistics (e.g. share-scope keep mime_type)
+  -s STATS      list of metadata to include with activity statistics (e.g. count share-scope keep mime_type)
   --version     show version
 
 """
@@ -136,6 +136,9 @@ def _preprocess_record(record):
     '''
         Convert all metadata values to booleans
     '''
+
+    record['count'] = 1
+
     try:
         if record.pop('mime_type'):
             record['mime_type'] = 1
@@ -166,6 +169,7 @@ def _preprocess_record(record):
 
     return record
 
+
 def _activity_stats(collected_stats):
     '''
     Calculate the number of times each activity was launched.
@@ -190,14 +194,12 @@ def _activity_stats(collected_stats):
 
         if activity in activity_stats:
             # update
-            activity_stats[activity]['count'] += 1
-
             for key in metadata:
                 val = record[key]
                 activity_stats[activity][key] += val
         else:
             # initialize
-            activity_stats[activity] = {'count': 1}
+            activity_stats[activity] = {}
 
             # process the remaining metadata
             for key in metadata:
@@ -278,4 +280,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
