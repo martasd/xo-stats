@@ -154,18 +154,13 @@ def _preprocess_record(record):
     else:
         record['keep'] = int(keep)
 
-    scope_vals = ['public', 'private']
     try:
         active_scope = record.pop('share-scope')
     except KeyError:
         # when no scope present, default to private
         record['private'] = 1
-        record['public'] = 0
     else:
-        scope_vals.remove(active_scope)
-        inactive_scope = scope_vals.pop()
-        record[active_scope] = 1
-        record[inactive_scope] = 0
+        record['private'] = 1 if active_scope == 'private' else 0
 
     return record
 
@@ -183,7 +178,7 @@ def _activity_stats(collected_stats):
     except ValueError:
         pass
     else:
-        metadata += ['public', 'private']
+        metadata += ['private']
 
     # count the number of times activities have been launched
     for record in collected_stats:
