@@ -37,22 +37,28 @@ def _get_metadata(filepath):
     Process the Journal metadata and output them in the specified format
     '''
 
+    global metadata
     with open(filepath, "r") as fp:
         data = fp.read()
-    metadata_in = json.loads(data)
-    global metadata
 
-    # Select only relevant metadata
     metadata_out = {}
-    activity_name = metadata_in.pop('activity')
 
-    if activity_name:
-        activity_name = re.split(r'\.', activity_name)[-1]
-        metadata_out['activity'] = re.sub(r'Activity', '', activity_name)
+    try:
+        metadata_in = json.loads(data)
+    except ValueError:
+        # TODO: Deal with invalid escape characters
+        print "Could not read metadata from %s",  filepath
+    else:
+        # Select only relevant metadata
+        activity_name = metadata_in.pop('activity')
 
-        for key, val in metadata_in.items():
-            if key in metadata:
-                metadata_out[key] = val
+        if activity_name:
+            activity_name = re.split(r'\.', activity_name)[-1]
+            metadata_out['activity'] = re.sub(r'Activity', '', activity_name)
+
+            for key, val in metadata_in.items():
+                if key in metadata:
+                    metadata_out[key] = val
 
     return metadata_out
 
