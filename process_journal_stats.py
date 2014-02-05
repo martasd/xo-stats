@@ -136,7 +136,7 @@ def _process_journals(root_dir):
             all_journals_stats += curr_journal_stats
 
     return all_journals_stats
- 
+
 
 def _preprocess_record(record):
     '''
@@ -173,7 +173,7 @@ def _preprocess_record(record):
 
 def _activity_stats(collected_stats):
     '''
-    Calculate the number of times each activity was launched.
+    Calculate the specified statistic for each activity.
     '''
 
     activity_stats = {}
