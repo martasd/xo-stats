@@ -6,6 +6,7 @@ format currently include CSV and JSON.
 
 Usage:
   process_journal_stats.py all [-m METADATA] [options]
+  process_journal_stats.py dbinsert DB_NAME [-m METADATA] [options]
   process_journal_stats.py activity [-s STATS] [options]
 
 Options:
@@ -13,8 +14,9 @@ Options:
   -o FILE       output file [default: ./journal_stats.csv]
   -d DIRECTORY  users directory with journal backups [default: ./users]
   -m METADATA   list of metadata to include in the output
-                [default: ['activity', 'uid', 'title_set_by_user', 'title', 'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
+                [default: ['activity', 'activity_id', 'uid', 'title_set_by_user', 'title', 'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
   -s STATS      list of metadata to include with activity statistics (e.g. count share-scope keep mime_type)
+  --server URL  the database server [default: http://127.0.0.1:5984]
   --version     show version
 
 """
@@ -29,6 +31,9 @@ import re
 import csv
 import json
 import filecmp
+import couchdb
+from couchdb.http import ResourceConflict, PreconditionFailed
+from uuid import uuid4
 from docopt import docopt
 
 
@@ -234,6 +239,41 @@ def _print_activity_stats(collected_stats, outfile, format):
             print "Unsupported output file format."
 
 
+def insert_into_db(collected_stats, db_name, server_url):
+    '''Insert collected statistics into CouchDB one activity instance per
+    document
+    '''
+
+    couch = couchdb.Server(url=server_url)
+
+    # create a new database if it doesn't exist
+    try:
+        db = couch.create(db_name)
+    except PreconditionFailed:
+        db = couch[db_name]
+        print "Importing documents into existing database"
+
+    count = 0
+    for instance_stats in collected_stats:
+        # activity_id is unique per activity instance
+        try:
+            instance_id = instance_stats.pop('activity_id')
+        except KeyError:
+            instance_id = uuid4().hex
+        instance_stats['_id'] = instance_id
+        try:
+            db.save(instance_stats)
+            count += 1
+        except ResourceConflict:
+            print "Document %s already exists in database %s." % (instance_id, db_name)
+        except PreconditionFailed:
+            # not clear why db.save can raise this exception, but it does when
+            # the document already exists
+            pass
+
+    print "%s Journal records successfuly inserted into db: %s" % (count, db_name)
+
+
 def main():
     arguments = docopt(__doc__, version=__version__)
     backup_dir = arguments['-d']
@@ -250,6 +290,7 @@ def main():
 
             if format == '.json':
                 json.dump(collected_stats, fp)
+                print "Output file: %s" % outfile
             elif format == '.csv':
                 # Collect all field names for header
                 keys = {}
@@ -268,16 +309,25 @@ def main():
                         if isinstance(value, unicode):
                             row[key] = value.encode('ascii', errors='ignore')
                     csv_writer.writerow(row)
+                print "Output file: %s" % outfile
             else:
                 print "Unsupported output file format."
+
+    elif arguments['dbinsert']:
+        metadata = arguments['-m']
+        db_name = arguments['DB_NAME']
+        server_url = arguments['--server']
+        collected_stats = _process_journals(backup_dir)
+        # put collected stats into CouchDB
+        insert_into_db(collected_stats, db_name, server_url)
 
     elif arguments['activity']:
         metadata = arguments['-s']
         metadata = metadata.split(',') if metadata else []
         collected_stats = _process_journals(backup_dir)
         _print_activity_stats(collected_stats, outfile, format)
+        print "Output file: %s" % outfile
 
-    print "Output file: %s" % outfile
 
 if __name__ == "__main__":
     main()
