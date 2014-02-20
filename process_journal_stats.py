@@ -10,14 +10,15 @@ Usage:
   process_journal_stats.py activity [-s STATS] [options]
 
 Options:
-  -h --help     show this help message
-  -o FILE       output file [default: ./journal_stats.csv]
-  -d DIRECTORY  users directory with journal backups [default: ./users]
-  -m METADATA   list of metadata to include in the output
-                [default: ['activity', 'activity_id', 'uid', 'title_set_by_user', 'title', 'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
-  -s STATS      list of metadata to include with activity statistics (e.g. count share-scope keep mime_type)
-  --server URL  the database server [default: http://127.0.0.1:5984]
-  --version     show version
+  -h --help          show this help message
+  -o FILE            output file [default: ./journal_stats.csv]
+  -d DIRECTORY       users directory with journal backups [default: ./users]
+  -m METADATA        list of metadata to include in the output
+                     [default: ['activity', 'activity_id', 'uid', 'title_set_by_user', 'title', 'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
+  -s STATS           list of metadata to include with activity statistics (e.g. count share-scope keep mime_type)
+  --server URL       the database server [default: http://127.0.0.1:5984]
+  --deployment NAME  the deployment site
+  --version          show version
 
 """
 
@@ -239,7 +240,7 @@ def _print_activity_stats(collected_stats, outfile, format):
             print "Unsupported output file format."
 
 
-def insert_into_db(collected_stats, db_name, server_url):
+def insert_into_db(collected_stats, db_name, server_url, deployment):
     '''Insert collected statistics into CouchDB one activity instance per
     document
     '''
@@ -255,6 +256,8 @@ def insert_into_db(collected_stats, db_name, server_url):
 
     count = 0
     for instance_stats in collected_stats:
+
+        instance_stats['deployment'] = deployment
         # activity_id is unique per activity instance
         try:
             instance_id = instance_stats.pop('activity_id')
@@ -317,9 +320,10 @@ def main():
         metadata = arguments['-m']
         db_name = arguments['DB_NAME']
         server_url = arguments['--server']
+        deployment = arguments['--deployment']
         collected_stats = _process_journals(backup_dir)
         # put collected stats into CouchDB
-        insert_into_db(collected_stats, db_name, server_url)
+        insert_into_db(collected_stats, db_name, server_url, deployment)
 
     elif arguments['activity']:
         metadata = arguments['-s']
