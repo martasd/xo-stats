@@ -12,7 +12,7 @@ Usage:
 Options:
   -h --help          show this help message
   -o FILE            output file [default: ./journal_stats.csv]
-  -d DIRECTORY       users directory with journal backups [default: ./users]
+  -d DIRECTORY       users directory with journal backups [default: /library/users]
   -m METADATA        list of metadata to include in the output
                      [default: ['activity', 'activity_id', 'uid', 'title_set_by_user', 'title', 'tags', 'share-scope', 'keep', 'mime_type', 'mtime']]
   -s STATS           list of metadata to include with activity statistics (e.g. count share-scope keep mime_type)
