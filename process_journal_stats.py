@@ -252,7 +252,7 @@ def insert_into_db(collected_stats, db_name, server_url, deployment):
         db = couch.create(db_name)
     except PreconditionFailed:
         db = couch[db_name]
-        print "Importing documents into existing database"
+        print "Importing documents into existing database %s." % db_name
 
     count = 0
     for instance_stats in collected_stats:
@@ -265,10 +265,12 @@ def insert_into_db(collected_stats, db_name, server_url, deployment):
             instance_id = uuid4().hex
         instance_stats['_id'] = instance_id
         try:
+            # update the document if it already exists in the database
+            orig_doc = db.get(instance_id)
+            if orig_doc is not None:
+                instance_stats['_rev'] = orig_doc['_rev']
             db.save(instance_stats)
             count += 1
-        except ResourceConflict:
-            print "Document %s already exists in database %s." % (instance_id, db_name)
         except PreconditionFailed:
             # not clear why db.save can raise this exception, but it does when
             # the document already exists
