@@ -33,7 +33,7 @@ import csv
 import json
 import filecmp
 import couchdb
-from couchdb.http import ResourceConflict, PreconditionFailed
+from couchdb.http import PreconditionFailed
 from uuid import uuid4
 from docopt import docopt
 
@@ -240,8 +240,31 @@ def _print_activity_stats(collected_stats, outfile, format):
             print "Unsupported output file format."
 
 
+def prepare_json(instance_stats, deployment):
+    '''
+    Prepare JSON with activity instance metadata to be inserted in the db
+    '''
+
+    global metadata
+
+    mtime = instance_stats['mtime']
+    if mtime:
+        year = mtime.split('-')[0]
+        if int(year) < 2006:
+            return None, None
+    instance_stats['deployment'] = deployment
+    # activity_id is unique per activity instance
+    try:
+        instance_id = instance_stats.pop('activity_id')
+    except KeyError:
+        instance_id = uuid4().hex
+        instance_stats['_id'] = instance_id
+
+    return instance_stats, instance_id
+
 def insert_into_db(collected_stats, db_name, server_url, deployment):
-    '''Insert collected statistics into CouchDB one activity instance per
+    '''
+    Insert collected statistics into CouchDB one activity instance per
     document
     '''
 
@@ -256,27 +279,21 @@ def insert_into_db(collected_stats, db_name, server_url, deployment):
 
     count = 0
     for instance_stats in collected_stats:
+        instance_stats, instance_id = prepare_json(instance_stats, deployment)
+        if instance_stats is not None:
+            try:
+                # update the document if it already exists in the database
+                orig_doc = db.get(instance_id)
+                if orig_doc is not None:
+                    instance_stats['_rev'] = orig_doc['_rev']
+                db.save(instance_stats)
+                count += 1
+            except PreconditionFailed:
+                # not clear why db.save can raise this exception, but it does
+                # when the document already exists
+                pass
 
-        instance_stats['deployment'] = deployment
-        # activity_id is unique per activity instance
-        try:
-            instance_id = instance_stats.pop('activity_id')
-        except KeyError:
-            instance_id = uuid4().hex
-        instance_stats['_id'] = instance_id
-        try:
-            # update the document if it already exists in the database
-            orig_doc = db.get(instance_id)
-            if orig_doc is not None:
-                instance_stats['_rev'] = orig_doc['_rev']
-            db.save(instance_stats)
-            count += 1
-        except PreconditionFailed:
-            # not clear why db.save can raise this exception, but it does when
-            # the document already exists
-            pass
-
-    print "%s Journal records successfuly inserted into db: %s" % (count, db_name)
+    print "%s Journal records inserted into db: %s" % (count, db_name)
 
 
 def main():
