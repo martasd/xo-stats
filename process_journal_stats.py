@@ -92,10 +92,11 @@ def _get_metadata_path(root_dir, serial_dir):
     Determine the path to metadata directories, the paths vary for different
     versions of Sugar.
 
-    Sugar 0.82 - 0.88: [serial]/datastore-[current,latest]/[store]
+    Sugar 0.82 - 0.88: [serial]/datastore-<timestamp>/[store]
     '''
 
-    datastore_name = re.compile('^datastore-*')
+    # exclude datastore-current and datastore-latest since they are just links
+    datastore_name = re.compile('^datastore-[0-9]{4}-*')
     serial_num = re.compile('^[A-Z]{2}')
 
     metadata_dirs = []
@@ -261,6 +262,7 @@ def prepare_json(instance_stats, deployment):
         instance_stats['_id'] = instance_id
 
     return instance_stats, instance_id
+
 
 def insert_into_db(collected_stats, db_name, server_url, deployment):
     '''
