@@ -1,3 +1,4 @@
+* Correct the activity instance date for each XO.
 * Give an option to print only activity count without any metadata.
 * Add support for Journal formats in later versions of Sugar: 0.88+.
 * Add an option to specify a date range for the backups to be processed.
