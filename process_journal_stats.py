@@ -252,6 +252,7 @@ def prepare_json(instance_stats, deployment):
     if mtime:
         year = mtime.split('-')[0]
         if int(year) < 2006:
+            print "Timestamp is before 2006: data is unreliable"
             return None, None
     instance_stats['deployment'] = deployment
     # activity_id is unique per activity instance
@@ -287,7 +288,11 @@ def insert_into_db(collected_stats, db_name, server_url, deployment):
                 # update the document if it already exists in the database
                 orig_doc = db.get(instance_id)
                 if orig_doc is not None:
-                    instance_stats['_rev'] = orig_doc['_rev']
+                    try:
+                        instance_stats['_rev'] = orig_doc['_rev']
+                    except KeyError:
+                        # doesn't every doc have a _rev field?
+                        pass
                 db.save(instance_stats)
                 count += 1
             except PreconditionFailed:
