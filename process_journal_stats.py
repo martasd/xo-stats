@@ -30,6 +30,7 @@ __version__ = "0.2"
 import os
 import re
 import csv
+import ast
 import json
 import filecmp
 import couchdb
@@ -38,40 +39,47 @@ from uuid import uuid4
 from docopt import docopt
 
 
-def _get_metadata(filepath):
+def _get_metadata(metadata_in, sugar_version):
     '''
-    Process the Journal metadata and output them in the specified format
+    Process the Journal metadata and output them in a dictionary.
+
+    Input:
+      metadata_in, dictionary of all key-value metadata from backup
+      sugar_version, determines metadata available
+
+    Output:
+      metadata_out, dictionary of relevant key-value metadata
+                    if no 'activity' metadatum', return {}
     '''
 
     global metadata
-    with open(filepath, "r") as fp:
-        data = fp.read()
 
     metadata_out = {}
+    # Select only relevant metadata
+    activity_name = metadata_in.pop('activity')
 
-    try:
-        metadata_in = json.loads(data)
-    except ValueError:
-        # TODO: Deal with invalid escape characters
-        print "Could not read metadata from %s",  filepath
-    else:
-        # Select only relevant metadata
-        activity_name = metadata_in.pop('activity')
+    # sanitize activity name
+    if activity_name:
+        activity_name = re.split(r'\.', activity_name)[-1]
+        metadata_out['activity'] = re.sub(r'Activity', '', activity_name)
 
-        if activity_name:
-            activity_name = re.split(r'\.', activity_name)[-1]
-            metadata_out['activity'] = re.sub(r'Activity', '', activity_name)
-
-            for key, val in metadata_in.items():
-                if key in metadata:
-                    metadata_out[key] = val
+        for key, val in metadata_in.items():
+            if key in metadata:
+                metadata_out[key] = val
 
     return metadata_out
 
 
-def _process_metadata_files(metadata_dir_path):
+def _process_metadata_files(metadata_dir_path, sugar_version):
     '''
-    Outputs stats from one Journal
+    Captures instance metadata saved in .metadata files as json (Sugar 0.82)
+
+    Input:
+      metadata_dir_path, path to store directory with *.metadata files
+      sugar_version, determines if to include extra metadata
+
+    Output:
+      compiled_stats, a list of dictionaries with activity instance metadata
     '''
 
     compiled_stats = []
@@ -79,27 +87,45 @@ def _process_metadata_files(metadata_dir_path):
 
     for file in os.listdir(metadata_dir_path):
         if metadata_file.match(file) is not None:
-            activity_metadata = _get_metadata(metadata_dir_path + '/' + file)
+            # Store metadata in a dictionary
+            metadata_filepath = metadata_dir_path + '/' + file
+            with open(metadata_filepath, "r") as fp:
+                data = fp.read()
 
-            if len(activity_metadata) > 0:
-                compiled_stats.append(activity_metadata)
+                try:
+                    metadata_in = json.loads(data)
+                except ValueError:
+                    # TODO: Deal with invalid escape characters
+                    print "Could not read metadata from %s",  metadata_filepath
+                else:
+                    activity_metadata = _get_metadata(metadata_in,
+                                                      sugar_version)
+                    if len(activity_metadata) > 0:
+                        compiled_stats.append(activity_metadata)
 
     return compiled_stats
 
 
-def _get_metadata_path(root_dir, serial_dir):
+def _get_metadata_paths_82(root_dir, serial_dir):
     '''
     Determine the path to metadata directories, the paths vary for different
     versions of Sugar.
 
     Sugar 0.82 - 0.88: [serial]/datastore-<timestamp>/[store]
+
+    Input:
+      root_dir, the backup root directory containing XO serial number dirs
+      serial_dir, directory containing Journal backups for specific XO
+
+    Output:
+      metadata_paths, the paths to all metadata directories for XO with serial
     '''
 
     # exclude datastore-current and datastore-latest since they are just links
     datastore_name = re.compile('^datastore-[0-9]{4}-*')
     serial_num = re.compile('^[A-Z]{2}')
 
-    metadata_dirs = []
+    metadata_paths = []
 
     if serial_num.match(serial_dir):
         path_to_serial = root_dir + '/' + serial_dir
@@ -117,30 +143,155 @@ def _get_metadata_path(root_dir, serial_dir):
 
             # make sure to include only unique directories
             diff = True
-            for orig_dir in metadata_dirs:
+            for orig_dir in metadata_paths:
                 cmp = filecmp.dircmp(orig_dir, path)
                 diff = diff and (cmp.left_only or cmp.right_only or cmp.diff_files)
 
             if diff:
                 print "Found valid journal dir: %s" % path
-                metadata_dirs.append(path)
+                metadata_paths.append(path)
 
-    return metadata_dirs
+    return metadata_paths
+
+
+def _get_metadata_paths_96(root_dir, serial_dir, dirnames_regex):
+    '''
+    Determine the path to metadata dirs for Sugar 0.96 datastore format
+    0.96 backup path:
+      [serial]/datastore-*/[activity_short-id]/[activity_full_id]/metadata
+
+    Input:
+      root_dir, the backup root directory containing XO serial number dirs
+      serial_dir, directory containing Journal backups for specific XO
+      dirnames_regex, a dictionary of regular expressions to match directory
+                      names in the backup path
+    Output:
+      metadata_paths, the paths to all metadata directories for XO with serial
+    '''
+    metadata_paths = []
+
+    if dirnames_regex['serial_num'].match(serial_dir):
+        path_to_serial = root_dir + '/' + serial_dir
+    else:
+        # Not a directory with metadata
+        return []
+
+    # for each datastore retrieve activity metadata and store them in json
+    for datastore_backup in os.listdir(path_to_serial):
+        if dirnames_regex['datastore'].match(datastore_backup):
+            path_to_datastore = path_to_serial + '/' + datastore_backup
+            # we have found a backup dir
+            for activity_short_id in os.listdir(path_to_datastore):
+                if dirnames_regex['activity_id'].match(activity_short_id):
+                    # assume that there is activity full id dir if
+                    # activity short id dir exists
+                    activity_long_id = os.listdir(path_to_datastore
+                                                  + '/' + activity_short_id)[0]
+
+                    path = path_to_datastore + '/' + activity_short_id + '/' + activity_long_id + '/metadata'
+                    if os.path.isdir(path):
+                        print "Found valid journal dir: %s" % path
+                        metadata_paths.append(path)
+
+    return metadata_paths
+
+
+def _get_metadata_96(path_to_metadata_dir):
+    '''
+    Read data from files in metadata directory and store them into a dictionary
+    for further processing.
+
+    Input:
+      path_to_metadata_dir, path to a dir which holds all metadata about
+                            one activity instance
+    Output:
+      metadata_out, dictionary of key-value metadata
+    '''
+
+    # store metadata in a dictionary
+    metadata_96 = {}
+    for key in os.listdir(path_to_metadata_dir):
+        path_to_metadata_file = path_to_metadata_dir + '/' + key
+        with open(path_to_metadata_file, "r") as fp:
+            value = fp.read()
+        metadata_96[key] = value
+
+    return _get_metadata(metadata_96, 0.96)
+
+
+def _get_sugar_version(root_dir, dirnames_regex):
+    '''
+    Determine Sugar version.
+
+    Input:
+      root_dir, the backup root directory containing XO serial number dirs
+      dirnames_regex, a dictionary of regular expressions to match directory
+                      names in the backup path
+    Ouput:
+      sugar_version, a float (currently either 0.82 or 0.96)
+    '''
+    for serial_dir in os.listdir(root_dir):
+        if dirnames_regex['serial_num'].match(serial_dir):
+            path_to_serial = root_dir + '/' + serial_dir
+            for datastore_dir in os.listdir(path_to_serial):
+                if dirnames_regex['datastore_current'].match(datastore_dir):
+                    path_to_datastore = path_to_serial + '/' + datastore_dir
+                    for dir in os.listdir(path_to_datastore):
+                        if dirnames_regex['activity_id'].match(dir):
+                            return 0.96
+                        # assume there is always a 'store' subdir in Sugar 0.82
+                        elif dirnames_regex['store'].match(dir):
+                            return 0.82
+
+    # did not find a valid datastore path
+    return None
 
 
 def _process_journals(root_dir):
     '''
     Output stats from all specified journals in JSON
+
+    Input:
+      root_dir, the backup root directory containing XO serial number dirs
+
+    Output:
+      all_journals_stats, a list of dictionaries each containing
+                          metadata for one activity instance
     '''
 
+    global metadata
     all_journals_stats = []
-    for serial_dir in os.listdir(root_dir):
-        metadata_dirs = _get_metadata_path(root_dir, serial_dir)
+    dirnames_regex = {}
+    dirnames_regex['serial_num'] = re.compile('^[A-Z]{2}')
+    dirnames_regex['datastore'] = re.compile('^datastore-*')
+    dirnames_regex['datastore_current'] = re.compile('^datastore-current$')
+    dirnames_regex['activity_id'] = re.compile('^[a-z0-9]{2}$')
+    dirnames_regex['store'] = re.compile('store')
 
-        # process each datastore backup per serial number
-        for metadata_dir in metadata_dirs:
-            curr_journal_stats = _process_metadata_files(metadata_dir)
-            all_journals_stats += curr_journal_stats
+    sugar_version = _get_sugar_version(root_dir, dirnames_regex)
+    if sugar_version == 0.82:
+        for serial_dir in os.listdir(root_dir):
+            metadata_paths = _get_metadata_paths_82(root_dir, serial_dir)
+
+            # process each datastore backup per serial number
+            for metadata_path in metadata_paths:
+                current_journal_stats = _process_metadata_files(metadata_path,
+                                                                sugar_version)
+                all_journals_stats += current_journal_stats
+    elif sugar_version == 0.96:
+        # additional metadata is available in Sugar 0.96 datastore
+        metadata = ast.literal_eval(metadata)
+        metadata += ['buddies', 'filesize', 'creation_time', 'launch-times']
+
+        for serial_dir in os.listdir(root_dir):
+            metadata_paths = _get_metadata_paths_96(root_dir, serial_dir,
+                                                    dirnames_regex)
+            for metadata_path in metadata_paths:
+                current_journal_stats = _get_metadata_96(metadata_path)
+                if current_journal_stats:
+                    all_journals_stats.append(current_journal_stats)
+    else:
+        print "The datastore format of this Sugar version is currently not supported."
 
     return all_journals_stats
 
@@ -248,12 +399,17 @@ def prepare_json(instance_stats, deployment):
 
     global metadata
 
-    mtime = instance_stats['mtime']
-    if mtime:
-        year = mtime.split('-')[0]
-        if int(year) < 2006:
-            print "Timestamp is before 2006: data is unreliable"
-            return None, None
+    try:
+        mtime = instance_stats['mtime']
+    except KeyError:
+        print "This instance doesn't include mtime metadatum."
+    else:
+        if mtime:
+            year = mtime.split('-')[0]
+            if int(year) < 2006:
+                print "Timestamp is before 2006: data is unreliable"
+                return None, None
+
     instance_stats['deployment'] = deployment
     # activity_id is unique per activity instance
     try:
