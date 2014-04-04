@@ -37,11 +37,92 @@ import couchdb
 from couchdb.http import PreconditionFailed
 from uuid import uuid4
 from docopt import docopt
+from datetime import datetime
+
+
+def _correct_timestamp(timestamp, timedelta):
+    '''
+    Correct timestamp which was recorded improperly.
+
+    Input:
+      timestamp, a string timestamp of activity instance
+                 (format: %Y-%m-%dT%H:%M:%S)
+      timedelta, a datetime object containing the time difference to be added
+                 to timestamp
+
+    Output:
+      updated_timestamp, the corrected string timestamp
+    '''
+
+    mtime_regex = re.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}(?=(.*))")
+
+    orig_date_str = mtime_regex.search(timestamp).group(0)
+    orig_date_suffix_str = mtime_regex.search(timestamp).group(1)
+    orig_datetime = datetime.strptime(orig_date_str, "%Y-%m-%d")
+    updated_datetime = orig_datetime + timedelta
+
+    # convert back to a string
+    updated_timestamp = updated_datetime.strftime("%Y-%m-%d") + orig_date_suffix_str
+    return updated_timestamp
+
+
+def _calculate_timedelta(metadata_dir_path):
+    '''
+    Determine the temporal difference between the date stored in the name of
+    datastore backup directory and the date of the included in the metadata of
+    the most recent activity from that directory.
+
+    Input:
+      metadata_dir_path, the path to the backup directory with metadata files
+
+    Output:
+      timedelta, difference between dates
+
+    '''
+    date_regex = re.compile("(?<=(datastore-))[0-9]{4}-[0-9]{2}-[0-9]{2}(?=.*)")
+    mtime_regex = re.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}(?=.*)")
+
+    # Extract date from datastore dirname
+    datastore_dirname = metadata_dir_path.split(os.sep)[-2]
+    datastore_date_str = date_regex.search(datastore_dirname).group(0)
+    datastore_datetime = datetime.strptime(datastore_date_str, "%Y-%m-%d")
+
+    metadata_file = re.compile(r'.*\.metadata$')
+    latest_datetime = datetime.min
+    for file in os.listdir(metadata_dir_path):
+        if metadata_file.match(file) is not None:
+            metadata_filepath = metadata_dir_path + '/' + file
+            with open(metadata_filepath, "r") as fp:
+                all_data = fp.read()
+
+                try:
+                    activity_metadata = json.loads(all_data)
+                except ValueError:
+                    pass
+                else:
+                    try:
+                        activity_mtime = activity_metadata['mtime']
+                    except KeyError:
+                        pass
+                    else:
+                        current_date_str = mtime_regex.search(activity_mtime).group(0)
+                        current_datetime = datetime.strptime(current_date_str,
+                                                         "%Y-%m-%d")
+                        # update the latest date so far if we found
+                        # a more recent date in activity timestamp
+                        if current_datetime > latest_datetime:
+                            latest_datetime = current_datetime
+
+    # Determine difference between datastore date and latest_date
+    timedelta = datastore_datetime - latest_datetime
+
+    return timedelta
 
 
 def _get_metadata(metadata_in, sugar_version):
     '''
-    Process the Journal metadata and output them in a dictionary.
+    Select relevant activity metadata based on user's preference
+    and output them in a dictionary.
 
     Input:
       metadata_in, dictionary of all key-value metadata from backup
@@ -55,7 +136,6 @@ def _get_metadata(metadata_in, sugar_version):
     global metadata
 
     metadata_out = {}
-    # Select only relevant metadata
     activity_name = metadata_in.pop('activity')
 
     # sanitize activity name
@@ -101,6 +181,17 @@ def _process_metadata_files(metadata_dir_path, sugar_version):
                     activity_metadata = _get_metadata(metadata_in,
                                                       sugar_version)
                     if len(activity_metadata) > 0:
+                        try:
+                            mtime = activity_metadata['mtime']
+                        except KeyError:
+                            print "This instance doesn't include mtime metadatum."
+                        else:
+                            if mtime:
+                                year = mtime.split('-')[0]
+                                if int(year) < 2006:
+                                    timedelta = _calculate_timedelta(metadata_dir_path)
+                                    activity_metadata['mtime'] = _correct_timestamp(mtime, timedelta)
+
                         compiled_stats.append(activity_metadata)
 
     return compiled_stats
@@ -134,9 +225,9 @@ def _get_metadata_paths_82(root_dir, serial_dir):
         return []
 
     # iterate over all datastore backups for one serial number
-    for dir in os.listdir(path_to_serial):
-        path = path_to_serial + '/' + dir
-        if datastore_name.match(dir) and os.path.islink(path) is False:
+    for datastore_dir in os.listdir(path_to_serial):
+        path = path_to_serial + '/' + datastore_dir
+        if datastore_name.match(datastore_dir) and os.path.islink(path) is False:
             store_dir = path + '/store'
             if os.path.isdir(store_dir):
                 path = store_dir
@@ -398,17 +489,6 @@ def prepare_json(instance_stats, deployment):
     '''
 
     global metadata
-
-    try:
-        mtime = instance_stats['mtime']
-    except KeyError:
-        print "This instance doesn't include mtime metadatum."
-    else:
-        if mtime:
-            year = mtime.split('-')[0]
-            if int(year) < 2006:
-                print "Timestamp is before 2006: data is unreliable"
-                return None, None
 
     instance_stats['deployment'] = deployment
     # activity_id is unique per activity instance
