@@ -66,14 +66,16 @@ def _correct_timestamp(timestamp, timedelta):
     return updated_timestamp
 
 
-def _calculate_timedelta(metadata_dir_path):
+def _calculate_timedelta(metadata_dir_path, first_deployment_yr):
     '''
     Determine the temporal difference between the date stored in the name of
     datastore backup directory and the date of the included in the metadata of
-    the most recent activity from that directory.
+    the most recent activity from that directory which has incorrect timestamp
+    (from before first deployment year)
 
     Input:
       metadata_dir_path, the path to the backup directory with metadata files
+      first_deployment_yr, if timestamp earlier than this year, it must be incorrect
 
     Output:
       timedelta, difference between dates
@@ -108,9 +110,9 @@ def _calculate_timedelta(metadata_dir_path):
                         current_date_str = mtime_regex.search(activity_mtime).group(0)
                         current_datetime = datetime.strptime(current_date_str,
                                                          "%Y-%m-%d")
-                        # update the latest date so far if we found
-                        # a more recent date in activity timestamp
-                        if current_datetime > latest_datetime:
+                        # update the latest date so far if we found a more
+                        # recent incorrect date in activity timestamp
+                        if current_datetime > latest_datetime and current_datetime.year < first_deployment_yr:
                             latest_datetime = current_datetime
 
     # Determine difference between datastore date and latest_date
@@ -163,6 +165,7 @@ def _process_metadata_files(metadata_dir_path, sugar_version):
     '''
 
     compiled_stats = []
+    first_deployment_yr = 2006
     metadata_file = re.compile(r'.*\.metadata$')
 
     for file in os.listdir(metadata_dir_path):
@@ -182,14 +185,17 @@ def _process_metadata_files(metadata_dir_path, sugar_version):
                                                       sugar_version)
                     if len(activity_metadata) > 0:
                         try:
-                            mtime = activity_metadata['mtime']
+                            mtime = activity_metadata.pop('mtime')
                         except KeyError:
                             print "This instance doesn't include mtime metadatum."
                         else:
                             if mtime:
+                                # correct activity timestamp if incorrect
                                 year = mtime.split('-')[0]
-                                if int(year) < 2006:
-                                    timedelta = _calculate_timedelta(metadata_dir_path)
+                                if int(year) >= first_deployment_yr:
+                                    activity_metadata['mtime'] = mtime
+                                else:
+                                    timedelta = _calculate_timedelta(metadata_dir_path, first_deployment_yr)
                                     activity_metadata['mtime'] = _correct_timestamp(mtime, timedelta)
 
                         compiled_stats.append(activity_metadata)
