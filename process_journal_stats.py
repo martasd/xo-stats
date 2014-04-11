@@ -497,12 +497,12 @@ def prepare_json(instance_stats, deployment):
     global metadata
 
     instance_stats['deployment'] = deployment
-    # activity_id is unique per activity instance
+    # activity_id is unique per activity instance, so we can use it as doc id
     try:
         instance_id = instance_stats.pop('activity_id')
     except KeyError:
         instance_id = uuid4().hex
-        instance_stats['_id'] = instance_id
+    instance_stats['_id'] = instance_id
 
     return instance_stats, instance_id
 
@@ -520,7 +520,17 @@ def insert_into_db(collected_stats, db_name, server_url, deployment):
         db = couch.create(db_name)
     except PreconditionFailed:
         db = couch[db_name]
-        print "Importing documents into existing database %s." % db_name
+        print "Importing documents from %s into existing database %s." % (deployment, db_name)
+
+    # updated the list of deployments in the db
+    deployments_doc = db.get("deployments")
+    if deployments_doc is not None:
+        if deployment not in deployments_doc["deployments"]:
+            deployments_doc["deployments"].append(deployment)
+    else:
+        deployments_doc = {"_id": "deployments",
+                           "deployments": [deployment]}
+    db.save(deployments_doc)
 
     count = 0
     for instance_stats in collected_stats:
