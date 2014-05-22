@@ -194,9 +194,11 @@ def _process_metadata_files(metadata_dir_path, sugar_version):
                                 year = mtime.split('-')[0]
                                 if int(year) >= first_deployment_yr:
                                     activity_metadata['mtime'] = mtime
+                                    activity_metadata['corrected_timestamp'] = 'false'
                                 else:
                                     timedelta = _calculate_timedelta(metadata_dir_path, first_deployment_yr)
                                     activity_metadata['mtime'] = _correct_timestamp(mtime, timedelta)
+                                    activity_metadata['corrected_timestamp'] = 'true'
 
                         compiled_stats.append(activity_metadata)
 
