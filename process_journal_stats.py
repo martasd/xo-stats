@@ -346,6 +346,47 @@ def _get_sugar_version(root_dir, dirnames_regex):
     return None
 
 
+def _get_dirnames_regex():
+    '''
+    Create a collection of regular expressions to match various Sugar directory
+    names.
+
+    Output:
+      dirnames_regex, a collection of regular expressions
+    '''
+
+    dirnames_regex = {}
+    dirnames_regex['serial_num'] = re.compile('^[A-Z]{2}')
+    dirnames_regex['datastore'] = re.compile('^datastore-*')
+    dirnames_regex['datastore_current'] = re.compile('^datastore-current$')
+    dirnames_regex['activity_id'] = re.compile('^[a-z0-9]{2}$')
+    dirnames_regex['store'] = re.compile('store')
+
+    return dirnames_regex
+
+
+def _get_num_devices(root_dir):
+    '''
+    Retrieve the number of Sugar devices that were backed up.
+
+    Input:
+      root_dir, the backup root directory containing serial numbers
+      dirnames_regex, a dictionary of regular expressions to match directory
+                      names in the backup path
+
+    Output:
+      num_devices, the number of devices backed up
+    '''
+
+    num_devices = 0
+    dirnames_regex = _get_dirnames_regex()
+    for serial_dir in os.listdir(root_dir):
+        if dirnames_regex['serial_num'].match(serial_dir):
+            num_devices += 1
+
+    return num_devices
+
+
 def _process_journals(root_dir):
     '''
     Output stats from all specified journals in JSON
@@ -360,12 +401,7 @@ def _process_journals(root_dir):
 
     global metadata
     all_journals_stats = []
-    dirnames_regex = {}
-    dirnames_regex['serial_num'] = re.compile('^[A-Z]{2}')
-    dirnames_regex['datastore'] = re.compile('^datastore-*')
-    dirnames_regex['datastore_current'] = re.compile('^datastore-current$')
-    dirnames_regex['activity_id'] = re.compile('^[a-z0-9]{2}$')
-    dirnames_regex['store'] = re.compile('store')
+    dirnames_regex = _get_dirnames_regex()
 
     sugar_version = _get_sugar_version(root_dir, dirnames_regex)
     if sugar_version == 0.82:
@@ -509,7 +545,8 @@ def prepare_json(instance_stats, deployment):
     return instance_stats, instance_id
 
 
-def insert_into_db(collected_stats, db_name, server_url, deployment):
+def insert_into_db(collected_stats, db_name, server_url, deployment,
+                   num_devices):
     '''
     Insert collected statistics into CouchDB one activity instance per
     document
@@ -533,6 +570,15 @@ def insert_into_db(collected_stats, db_name, server_url, deployment):
         deployments_doc = {"_id": "deployments",
                            "deployments": [deployment]}
     db.save(deployments_doc)
+
+    # update the number of devices per deployment
+    devices_doc = db.get("number of devices")
+    if devices_doc is not None:
+        devices_doc[deployment] = num_devices
+    else:
+        devices_doc = {"_id": "number of devices",
+                       deployment: num_devices}
+    db.save(devices_doc)
 
     count = 0
     for instance_stats in collected_stats:
@@ -602,8 +648,9 @@ def main():
         server_url = arguments['--server']
         deployment = arguments['--deployment']
         collected_stats = _process_journals(backup_dir)
+        num_devices = _get_num_devices(backup_dir)
         # put collected stats into CouchDB
-        insert_into_db(collected_stats, db_name, server_url, deployment)
+        insert_into_db(collected_stats, db_name, server_url, deployment, num_devices)
 
     elif arguments['activity']:
         metadata = arguments['-s']
