@@ -1,6 +1,8 @@
 xo-stats
 ========
 
+#### This repository is now deprecated. To visualize XO data, head to [XOvis repository](https://github.com/martasd/xovis)
+
 ## Description
 
 The project's objective is to determine how XOs are used in Nepalese
